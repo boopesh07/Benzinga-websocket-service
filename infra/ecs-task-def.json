@@ -1,0 +1,64 @@
+{
+    "family": "bz-ws-sink",
+    "networkMode": "awsvpc",
+    "executionRoleArn": "arn:aws:iam::<ACCOUNT_ID>:role/etl-pipeline-execution-role",
+    "taskRoleArn": "arn:aws:iam::<ACCOUNT_ID>:role/etl-pipeline-task-role",
+    "cpu": "256",
+    "memory": "512",
+    "requiresCompatibilities": [
+        "FARGATE"
+    ],
+    "containerDefinitions": [
+        {
+            "name": "bz-ws-sink",
+            "cpu": 256,
+            "memory": 512,
+            "image": "<ACCOUNT_ID>.dkr.ecr.<REGION>.amazonaws.com/bz-ws-sink:latest",
+            "essential": true,
+            "portMappings": [],
+            "environment": [
+                {
+                    "name": "SINK",
+                    "value": "s3"
+                },
+                {
+                    "name": "BENZINGA_WS_URL",
+                    "value": "wss://api.benzinga.com/api/v1/news/stream"
+                },
+                {
+                    "name": "S3_BUCKET",
+                    "value": "<S3_BUCKET>"
+                },
+                {
+                    "name": "S3_PREFIX",
+                    "value": "<S3_PREFIX>"
+                },
+                {
+                    "name": "AWS_REGION",
+                    "value": "<REGION>"
+                },
+                {
+                    "name": "LOG_FORMAT",
+                    "value": "<LOG_FORMAT>"
+                },
+                {
+                    "name": "LOG_LEVEL",
+                    "value": "<LOG_LEVEL>"
+                },
+                {
+                    "name": "BENZINGA_API_KEY",
+                    "value": "<BENZINGA_API_KEY>"
+                }
+            ],
+            "logConfiguration": {
+                "logDriver": "awslogs",
+                "options": {
+                    "awslogs-group": "/ecs/etl-pipeline-logs",
+                    "awslogs-region": "<REGION>",
+                    "awslogs-stream-prefix": "ecs",
+                    "awslogs-create-group": "true"
+                }
+            }
+        }
+    ]
+}
