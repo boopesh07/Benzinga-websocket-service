@@ -48,6 +48,18 @@
                 {
                     "name": "BENZINGA_API_KEY",
                     "value": "<BENZINGA_API_KEY>"
+                },
+                {
+                    "name": "BEDROCK_MODEL_ID",
+                    "value": "us.anthropic.claude-3-5-sonnet-20241022-v2:0"
+                },
+                {
+                    "name": "SUMMARY_MAX_WORDS",
+                    "value": "<SUMMARY_MAX_WORDS>"
+                },
+                {
+                    "name": "BEDROCK_MAX_RETRIES",
+                    "value": "<BEDROCK_MAX_RETRIES>"
                 }
             ],
             "logConfiguration": {

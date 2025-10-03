@@ -12,6 +12,7 @@ from .models import (
     Security,
     OutputRecord,
     try_extract_output,
+    extract_all_outputs,
 )
 from .file_writer import FileWindowedWriter
 from .s3_writer import WindowedS3Writer
@@ -27,6 +28,7 @@ __all__ = [
     "Security",
     "OutputRecord",
     "try_extract_output",
+    "extract_all_outputs",
     "FileWindowedWriter",
     "WindowedS3Writer",
     "main_async",

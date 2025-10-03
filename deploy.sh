@@ -22,6 +22,9 @@ sed -e "s|<ACCOUNT_ID>|$ACCOUNT_ID|g" \
     -e "s|<BENZINGA_API_KEY>|$BENZINGA_API_KEY|g" \
     -e "s|<LOG_FORMAT>|${LOG_FORMAT:-json}|g" \
     -e "s|<LOG_LEVEL>|${LOG_LEVEL:-INFO}|g" \
+    -e "s|<BEDROCK_MODEL_ID>|${BEDROCK_MODEL_ID:-us.anthropic.claude-3-5-sonnet-20241022-v2:0}|g" \
+    -e "s|<SUMMARY_MAX_WORDS>|${SUMMARY_MAX_WORDS:-200}|g" \
+    -e "s|<BEDROCK_MAX_RETRIES>|${BEDROCK_MAX_RETRIES:-3}|g" \
     infra/ecs-task-def.json > /tmp/ecs-task-def.rendered.json
 
 aws ecs register-task-definition --cli-input-json file:///tmp/ecs-task-def.rendered.json | cat
