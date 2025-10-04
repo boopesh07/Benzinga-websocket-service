@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field, field_validator
 from app.text_utils import strip_html_tags
 
 if TYPE_CHECKING:
-    from app.bedrock_summarizer import BedrockSummarizer
+    pass
 
 
 logger = logging.getLogger(__name__)
@@ -123,30 +123,9 @@ def _extract_symbol(security: Any) -> Optional[str]:
     return None
 
 
-def try_extract_output(
-    msg: StreamMessage,
-    summarizer: 'BedrockSummarizer',
-) -> Optional[OutputRecord]:
-    """Extract output record from a stream message.
-    
-    Returns the first valid ticker found. For multi-ticker articles,
-    use extract_all_outputs() instead (RECOMMENDED).
-    
-    Args:
-        msg: The incoming stream message
-        summarizer: BedrockSummarizer instance for generating summaries
-        
-    Returns:
-        OutputRecord if a valid ticker is found, None otherwise
-    """
-    records = extract_all_outputs(msg, summarizer)
-    return records[0] if records else None
-
-
 def extract_all_outputs(
     msg: StreamMessage,
-    summarizer: 'BedrockSummarizer',
-    max_words: int = 200,
+    summary: str,
 ) -> List[OutputRecord]:
     """Extract multiple output records from a stream message (one per ticker).
     
@@ -158,8 +137,7 @@ def extract_all_outputs(
     
     Args:
         msg: The incoming stream message
-        summarizer: BedrockSummarizer instance for generating summaries
-        max_words: Maximum words in summary (default: 200)
+        summary: The pre-generated summary for the article's content
         
     Returns:
         List of OutputRecord, one for each valid ticker found
@@ -170,28 +148,6 @@ def extract_all_outputs(
     
     if not tickers:
         return []
-    
-    # Clean HTML content once (shared across all ticker records)
-    body_clean = strip_html_tags(msg.data.content.body)
-    teaser_clean = strip_html_tags(msg.data.content.teaser)
-    
-    # Generate summary once for the article (use first ticker for context)
-    summary = summarizer.summarize_article(
-        ticker=tickers[0],
-        title=msg.data.content.title or "",
-        body=body_clean,
-        teaser=teaser_clean,
-        max_words=max_words,
-    )
-    
-    # Fallback if summarization fails: use cleaned body (truncated)
-    if not summary:
-        logger.warning("summarization-failed news_id=%s using-body-fallback", msg.data.id)
-        summary = (
-            body_clean[:1000] if body_clean else
-            teaser_clean if teaser_clean else
-            msg.data.content.title or "No content available"
-        )
     
     # Create one record per ticker with the same summary
     records = [

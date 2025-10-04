@@ -28,6 +28,7 @@ class BedrockSummarizer:
         self,
         region_name: Optional[str] = None,
         model_id: str = "anthropic.claude-3-5-sonnet-20241022-v2:0",
+        fallback_model_id: str = "anthropic.claude-3-haiku-20240307-v1:0",
         max_retries: int = 3,
     ):
         """Initialize Bedrock client for Claude models.
@@ -39,18 +40,78 @@ class BedrockSummarizer:
         Args:
             region_name: AWS region (uses default if not specified)
             model_id: Claude model ID (default: Claude 3.5 Sonnet)
+            fallback_model_id: Fallback model ID to use if primary fails
             max_retries: Maximum retry attempts (default: 3)
         """
         self.bedrock = boto3.client("bedrock-runtime", region_name=region_name)
         self.model_id = model_id
         self.region_name = region_name
         self.max_retries = max_retries
-
-        # Fallback model for configuration issues
-        self.fallback_model_id = "anthropic.claude-3-haiku-20240307-v1:0"
+        self.fallback_model_id = fallback_model_id
 
         logger.info("initialized bedrock summarizer model=%s region=%s", model_id, region_name or "default")
     
+    def _invoke_with_retry(
+        self,
+        prompt: str,
+        max_words: int,
+        ticker: str,
+        log_context: str,
+    ) -> Optional[str]:
+        """Invoke Bedrock with exponential backoff and fallback model logic."""
+        for attempt in range(self.max_retries):
+            try:
+                summary = self._invoke_bedrock_with_model(prompt, max_words, self.model_id)
+                if summary:
+                    logger.debug(
+                        "%s-summarized ticker=%s words=%d attempt=%d",
+                        log_context,
+                        ticker,
+                        len(summary.split()),
+                        attempt + 1,
+                    )
+                    return summary
+            except ClientError as e:
+                error_code = e.response.get("Error", {}).get("Code", "Unknown")
+                error_message = e.response.get("Error", {}).get("Message", "")
+
+                is_retryable = error_code in (
+                    "ThrottlingException",
+                    "ServiceUnavailableException",
+                    "TooManyRequestsException"
+                ) and "ValidationException" not in error_code
+
+                if not is_retryable or attempt == self.max_retries - 1:
+                    if error_code == "ValidationException" and "on-demand throughput" in error_message:
+                        logger.warning(
+                            "Primary model %s not available, trying fallback model %s",
+                            self.model_id, self.fallback_model_id
+                        )
+                        return self._invoke_bedrock_with_model(prompt, max_words, self.fallback_model_id)
+
+                    logger.error(
+                        "bedrock-error ticker=%s error_code=%s error_message=%s attempt=%d",
+                        ticker, error_code, error_message, attempt + 1
+                    )
+                    return None
+                
+                wait_time = 2 ** attempt
+                logger.warning(
+                    "bedrock-throttled ticker=%s attempt=%d retrying_in=%ds",
+                    ticker, attempt + 1, wait_time
+                )
+                time.sleep(wait_time)
+                
+            except Exception:
+                logger.exception("%s-summarization-failed ticker=%s attempt=%d", log_context, ticker, attempt + 1)
+                
+                if attempt == self.max_retries - 1:
+                    return None
+                
+                time.sleep(2 ** attempt)
+        
+        return None
+
     def summarize_article(
         self,
         ticker: str,
@@ -76,64 +137,7 @@ class BedrockSummarizer:
             return teaser if teaser else None
         
         prompt = self._build_prompt(ticker, title, body, teaser, max_words)
-        
-        # Retry with exponential backoff
-        for attempt in range(self.max_retries):
-            try:
-                summary = self._invoke_bedrock_with_model(prompt, max_words, self.model_id)
-                if summary:
-                    logger.debug(
-                        "summarized ticker=%s words=%d attempt=%d",
-                        ticker,
-                        len(summary.split()),
-                        attempt + 1,
-                    )
-                    return summary
-                    
-            except ClientError as e:
-                error_code = e.response.get("Error", {}).get("Code", "Unknown")
-                error_message = e.response.get("Error", {}).get("Message", "")
-
-                # ValidationException for incorrect model ID is not retryable
-                is_retryable = error_code in (
-                    "ThrottlingException",
-                    "ServiceUnavailableException",
-                    "TooManyRequestsException"
-                ) and "ValidationException" not in error_code
-
-                if not is_retryable or attempt == self.max_retries - 1:
-                    # Try fallback model if primary model has configuration issues
-                    if error_code == "ValidationException" and "on-demand throughput" in error_message:
-                        logger.warning(
-                            "Primary model %s not available, trying fallback model %s",
-                            self.model_id, self.fallback_model_id
-                        )
-                        return self._invoke_bedrock_with_model(prompt, max_words, self.fallback_model_id)
-
-                    logger.error(
-                        "bedrock-error ticker=%s error_code=%s error_message=%s attempt=%d",
-                        ticker, error_code, error_message, attempt + 1
-                    )
-                    return None
-                
-                # Retry with exponential backoff
-                wait_time = 2 ** attempt
-                logger.warning(
-                    "bedrock-throttled ticker=%s attempt=%d retrying_in=%ds",
-                    ticker, attempt + 1, wait_time
-                )
-                time.sleep(wait_time)
-                
-            except Exception:
-                logger.exception("summarization-failed ticker=%s attempt=%d", ticker, attempt + 1)
-                
-                if attempt == self.max_retries - 1:
-                    return None
-                
-                # Retry with exponential backoff
-                time.sleep(2 ** attempt)
-        
-        return None
+        return self._invoke_with_retry(prompt, max_words, ticker, "article")
     
     def _invoke_bedrock_with_model(self, prompt: str, max_words: int, model_id: str) -> Optional[str]:
         """Invoke Bedrock API with specific model.
@@ -197,64 +201,7 @@ class BedrockSummarizer:
             return None
 
         prompt = self._build_html_summary_prompt(ticker, title, html_content, max_words)
-
-        # Retry with exponential backoff
-        for attempt in range(self.max_retries):
-            try:
-                summary = self._invoke_bedrock_with_model(prompt, max_words, self.model_id)
-                if summary:
-                    logger.debug(
-                        "html-summarized ticker=%s words=%d attempt=%d",
-                        ticker,
-                        len(summary.split()),
-                        attempt + 1,
-                    )
-                    return summary
-
-            except ClientError as e:
-                error_code = e.response.get("Error", {}).get("Code", "Unknown")
-                error_message = e.response.get("Error", {}).get("Message", "")
-
-                # ValidationException for incorrect model ID is not retryable
-                is_retryable = error_code in (
-                    "ThrottlingException",
-                    "ServiceUnavailableException",
-                    "TooManyRequestsException"
-                ) and "ValidationException" not in error_code
-
-                if not is_retryable or attempt == self.max_retries - 1:
-                    # Try fallback model if primary model has configuration issues
-                    if error_code == "ValidationException" and "on-demand throughput" in error_message:
-                        logger.warning(
-                            "Primary model %s not available, trying fallback model %s",
-                            self.model_id, self.fallback_model_id
-                        )
-                        return self._invoke_bedrock_with_model(prompt, max_words, self.fallback_model_id)
-
-                    logger.error(
-                        "bedrock-error ticker=%s error_code=%s error_message=%s attempt=%d",
-                        ticker, error_code, error_message, attempt + 1
-                    )
-                    return None
-
-                # Retry with exponential backoff
-                wait_time = 2 ** attempt
-                logger.warning(
-                    "bedrock-throttled ticker=%s attempt=%d retrying_in=%ds",
-                    ticker, attempt + 1, wait_time
-                )
-                time.sleep(wait_time)
-
-            except Exception:
-                logger.exception("html-summarization-failed ticker=%s attempt=%d", ticker, attempt + 1)
-
-                if attempt == self.max_retries - 1:
-                    return None
-
-                # Retry with exponential backoff
-                time.sleep(2 ** attempt)
-
-        return None
+        return self._invoke_with_retry(prompt, max_words, ticker, "html")
 
     def _invoke_bedrock(self, prompt: str, max_words: int) -> Optional[str]:
         """Invoke Bedrock API with primary model (backward compatibility)."""

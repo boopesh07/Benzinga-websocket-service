@@ -2,18 +2,23 @@ import asyncio
 import logging
 import random
 import ssl
-from typing import Union
+from typing import Union, TYPE_CHECKING
 
 import certifi
 import orjson
 import websockets
 from websockets.asyncio.client import ClientConnection
 
+from app.bedrock_summarizer import BedrockSummarizer
 from app.config import settings
 from app.logging_setup import setup_logging
-from app.models import StreamMessage, extract_all_outputs
+from app.models import StreamMessage, _extract_symbol, extract_all_outputs
 from app.s3_writer import WindowedS3Writer
 from app.file_writer import FileWindowedWriter
+from app.text_utils import strip_html_tags
+
+if TYPE_CHECKING:
+    from app.bedrock_summarizer import BedrockSummarizer
 
 
 logger = logging.getLogger(__name__)
@@ -34,7 +39,7 @@ def _build_ws_url() -> str:
 async def _consume_messages(
     conn: ClientConnection,
     writer: Union[WindowedS3Writer, FileWindowedWriter],
-    summarizer,
+    summarizer: "BedrockSummarizer",
 ) -> None:
     """Consume messages from WebSocket connection and write to sink.
     
@@ -59,14 +64,37 @@ async def _consume_messages(
         except Exception:
             pass
         
-        # Extract all ticker records with summarization (one record per ticker)
-        records = extract_all_outputs(msg, summarizer, settings.summary_max_words)
-        if not records:
-            try:
-                logger.debug("ignored message id=%s reason=no-securities-or-ticker", msg.data.id)
-            except Exception:
-                logger.debug("ignored message reason=no-securities-or-ticker")
+        # 1. Extract tickers
+        securities = msg.data.content.securities or []
+        tickers = [sym for sec in securities if (sym := _extract_symbol(sec))]
+        if not tickers:
+            logger.debug("ignored message id=%s reason=no-securities", msg.data.id)
             continue
+        
+        # 2. Clean HTML content
+        body_clean = strip_html_tags(msg.data.content.body)
+        teaser_clean = strip_html_tags(msg.data.content.teaser)
+        
+        # 3. Generate summary (once per article)
+        summary = summarizer.summarize_article(
+            ticker=tickers[0],
+            title=msg.data.content.title or "",
+            body=body_clean,
+            teaser=teaser_clean,
+            max_words=settings.summary_max_words,
+        )
+        
+        # 4. Fallback to cleaned body if summarization fails
+        if not summary:
+            logger.warning("summarization-failed news_id=%s using-body-fallback", msg.data.id)
+            summary = (
+                body_clean[:1000] if body_clean else
+                teaser_clean if teaser_clean else
+                msg.data.content.title or "No content available"
+            )
+        
+        # 5. Create one record per ticker
+        records = extract_all_outputs(msg, summary)
         
         # Write each ticker record
         for record in records:
@@ -80,7 +108,7 @@ async def _consume_messages(
 
 async def run_stream(
     writer: Union[WindowedS3Writer, FileWindowedWriter],
-    summarizer,
+    summarizer: "BedrockSummarizer",
     stop: asyncio.Event
 ) -> None:
     """Run WebSocket stream with automatic reconnection.
@@ -128,10 +156,10 @@ async def main_async() -> None:
     setup_logging(level=settings.log_level, log_format=settings.log_format)
     
     # Initialize Bedrock summarizer
-    from app.bedrock_summarizer import BedrockSummarizer
     summarizer = BedrockSummarizer(
         region_name=settings.aws_region_name,
         model_id=settings.bedrock_model_id,
+        fallback_model_id=settings.bedrock_fallback_model_id,
         max_retries=settings.bedrock_max_retries,
     )
     logger.info(
