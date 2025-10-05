@@ -11,7 +11,6 @@ from .models import (
     Content,
     Security,
     OutputRecord,
-    try_extract_output,
     extract_all_outputs,
 )
 from .file_writer import FileWindowedWriter

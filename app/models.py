@@ -82,7 +82,7 @@ class OutputRecord(BaseModel):
     - content: Claude-generated 200-word summary
     - Compact, focused format for embeddings
     """
-    timestamp: datetime
+    timestamp: int  # Epoch milliseconds
     ticker: str
     news_id: int
     action: str  # "Created", "Updated", etc.
@@ -152,7 +152,7 @@ def extract_all_outputs(
     # Create one record per ticker with the same summary
     records = [
         OutputRecord(
-            timestamp=msg.data.timestamp,
+            timestamp=int(msg.data.timestamp.timestamp() * 1000),
             ticker=ticker,
             news_id=msg.data.id,
             action=msg.data.action or "Created",

@@ -266,7 +266,7 @@ Each NDJSON record contains a **Claude-generated summary** optimized for embeddi
 
 ```json
 {
-  "timestamp": "2025-10-02T18:40:40.529Z",     // Event timestamp (ISO 8601)
+  "timestamp": 1759497640529,                 // Event timestamp (Epoch milliseconds)
   "ticker": "TSLA",                             // Stock ticker symbol
   "news_id": 101148083,                         // Unique news article ID
   "action": "Created",                          // Article action (Created, Updated, etc.)
@@ -284,7 +284,7 @@ Each NDJSON record contains a **Claude-generated summary** optimized for embeddi
 
 ```json
 {
-  "timestamp": "2025-10-02T18:40:40.529Z",
+  "timestamp": 1759497640529,
   "ticker": "TSLA",
   "news_id": 101148083,
   "action": "Created",
@@ -334,6 +334,25 @@ When an article mentions multiple tickers:
 - ✅ Query "AAPL news" → Returns this article
 - ✅ Query "MSFT news" → Also returns this article
 - ✅ Summary generated **once** → Cost-efficient (1 API call for N tickers)
+
+## 🔄 Data Migration
+
+A migration script is available to update the timestamp format in existing `.ndjson` files from ISO 8601 strings to epoch milliseconds.
+
+The script is optimized for performance and safety:
+- **Parallel Processing**: It processes multiple S3 files and multiple records within each file concurrently to speed up migration.
+- **S3 Rate Limiting**: It uses `boto3`'s adaptive retry mode, which automatically adjusts request rates to avoid S3 throttling errors.
+
+### How to Run
+
+```bash
+# Ensure you have AWS credentials configured in your environment
+# Example: s3://your-bucket/benzinga/news/
+python migrate_timestamps.py s3://<your-bucket>/<your-prefix>/ --concurrency 10
+```
+
+- `s3_path`: The S3 path containing the `.ndjson` files to migrate.
+- `--concurrency`: (Optional) The number of parallel workers to use. Defaults to 5.
 
 ## 🐳 Docker
 

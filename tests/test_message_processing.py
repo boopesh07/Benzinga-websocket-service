@@ -155,7 +155,7 @@ class TestMessageProcessing:
         assert record.authors == ["John Doe", "Jane Smith"]
         assert record.url == "https://www.benzinga.com/news/earnings/24/10/tesla-q4-earnings"
         assert record.channels == ["News", "Earnings"]
-        assert record.timestamp is not None
+        assert isinstance(record.timestamp, int)
         assert record.created_at is not None
         assert record.updated_at is not None
     
@@ -272,7 +272,7 @@ class TestMessageProcessing:
         assert 'authors' in data
         assert 'url' in data
         assert 'channels' in data
-        assert 'timestamp' in data
+        assert isinstance(data['timestamp'], int)
         assert 'created_at' in data
         assert 'updated_at' in data
 
@@ -429,6 +429,7 @@ class TestBedrockIntegration:
         assert record.authors == ["John Doe", "Jane Smith"], "Authors should match"
         assert record.url is not None, "URL should be present"
         assert record.channels == ["News", "Earnings"], "Channels should match"
+        assert isinstance(record.timestamp, int)
         
         # Log the actual summary for inspection
         print(f"\n✅ Claude API call successful!")
